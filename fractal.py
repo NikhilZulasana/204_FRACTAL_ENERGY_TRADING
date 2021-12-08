@@ -6,55 +6,23 @@ import sqlalchemy
 import pandas_ta as ta
 from PSEconnect import PSEconnect
 from datetime import datetime, timedelta
+from jutsu import mansfield_rs
 
 
 # %% import price data from database
 engine = sqlalchemy.create_engine('postgresql://{0}:{1}@{2}:{3}/trading'.format(os.environ.get('db_user'), os.environ.get('db_password'),
                                                                                 os.environ.get('db_host'), os.environ.get('db_port')))
-
 # %%
 
 
-def Mansfield_RS(df, market_average='PSE.PSEi', timeframe='W'):
-
-    main_index = PSEconnect().indexprice(market_average, timeframe)
-
-    # Get common dates
-    date_values = df.index.intersection(main_index.index)
-
-    # This Functions match the number of available data in Index to Market Average
-    main_index = main_index.loc[date_values, :]
-    df = df.loc[date_values, :]
-
-    # Relative Performance
-    Dorsey_RS = df[['close']].div(main_index['close'], axis=0)
-
-    # Dorsey 200 day Simple Moving Average
-    if timeframe == 'D':
-        ma_length = 200
-    elif timeframe == 'W':
-        ma_length = 52
-    elif timeframe == 'M':
-        ma_length = 10
-    Dorsey_SMA = Dorsey_RS.ta.sma(length=ma_length)
-
-    # Compute for Mansfield Relative Strength
-    # Mansfield Relative Performance = (( Today's Standard Relative Performance divided by Today's Standard Relative Performance 52 Week Moving Average )) - 1) * 100
-    Mansfield_RS = ((Dorsey_RS.div(Dorsey_SMA, axis=0))-1)*100
-
-    return Mansfield_RS.dropna()
-
-# %%
-
-
-def fractal_energytrading(asset='stock', interval='W', energy_level=54, position='long'):
+def fractalenergy_stocks(interval='W', energy_level=54, position='long'):
 
     ticker_list = PSEconnect().pse_stocks_info['ticker'].to_list()
     fractal_table = []
 
     for ticker in ticker_list:
         data = PSEconnect().stockprice(ticker, interval)
-        # Check data if empty
+        # Check ticker if it have sufficient market data
         if data.empty is not True:
             base_date = datetime.now() - timedelta(30)
             sector = PSEconnect().pse_stocks_info.set_index(
@@ -62,8 +30,9 @@ def fractal_energytrading(asset='stock', interval='W', energy_level=54, position
             subsector = PSEconnect().pse_stocks_info.set_index(
                 'ticker').loc[ticker, 'subsector']
 
-            rs = Mansfield_RS(data, timeframe=interval).values[-1]
+            rs = mansfield_rs(data, timeframe=interval).values[-1]
 
+            # Check ticker if not suspended
             if base_date < data.index[-1]:
                 if len(data) < 15:
                     fractal = 0
@@ -77,15 +46,15 @@ def fractal_energytrading(asset='stock', interval='W', energy_level=54, position
                 else:
                     trend = 'insufficient data'
 
-                ticker_list = ({'ticker': ticker,
-                                'choppiness index': float(fractal),
-                                'sector': sector,
-                                'subsector': subsector,
-                                'direction': trend})
-                if ticker_list['choppiness index'] >= energy_level:
-                    fractal_table.append(ticker_list)
+                data = ({'ticker': ticker,
+                         'CHOP': float(fractal),
+                         'sector': sector,
+                         'subsector': subsector,
+                         'direction': trend})
+                if data['CHOP'] >= energy_level:
+                    fractal_table.append(data)
                 df = pd.DataFrame(fractal_table).sort_values(
-                    by='choppiness index', ascending=False).set_index('ticker')
+                    by='CHOP', ascending=False).set_index('ticker')
 
                 if position == 'long':
                     df = df[df.loc[:, 'direction'] == 'uptrend']
@@ -94,11 +63,68 @@ def fractal_energytrading(asset='stock', interval='W', energy_level=54, position
                 else:
                     df
 
+    return df.drop(['direction'], axis=1)
+
+# %%
+
+
+def fractalenergy_index(interval='W'):
+
+    indeces = PSEconnect().pse_indeces_info.set_index('ticker')
+
+    ticker_list = indeces.index[2:]
+    fractal_table = []
+
+    for ticker in ticker_list:
+        data = PSEconnect().indexprice(ticker, interval)
+
+        rs = mansfield_rs(data, timeframe=interval).values[-1]
+
+        fractal = data.tail(15).ta.chop(atr_length=1).dropna().values
+
+        if rs >= 0:
+            trend = 'uptrend'
+        elif rs < 0:
+            trend = 'downtrend'
+
+        data = ({'Index': indeces.to_dict()['name'][ticker],
+                 'CHOP': float(fractal),
+                 'direction': trend})
+        fractal_table.append(data)
+        df = pd.DataFrame(fractal_table).sort_values(
+            ['direction', 'CHOP'], ascending=False).set_index('Index')
+
     return df
 
 
 # %%
 if __name__ == '__main__':
-    print(fractal_energytrading())
+
+    timeframe = 'W'
+    strategy = 'long'
+
+    if timeframe == 'W':
+        header = 'Weekly Timeframe'
+    elif timeframe == 'D':
+        header = 'Daily Timeframe'
+
+    print(' \n ')
+    print('==================================================================================')
+    print('PSE Indeces Overview in {0}'.format(header))
+    print('==================================================================================')
+    print(' \n ')
+    print(fractalenergy_index(interval=timeframe))
+    print(' \n ')
+    print('==================================================================================')
+    print('Candidate Stocks for Swing Trade ({0} Position) in {1}'.format(
+        strategy.capitalize(), header))
+    print('==================================================================================')
+    print(' \n ')
+    print(fractalenergy_stocks(interval=timeframe,
+          energy_level=54, position=strategy))
+    print(' \n ')
+    print('==================================================================================')
+    print('Date:  {0}'.format(datetime.now().date().strftime("%B %d, %Y")))
+    print('==================================================================================')
 
 # %%
