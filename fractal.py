@@ -96,8 +96,28 @@ def fractalenergy_index(interval='W'):
 
     return df
 
-
 # %%
+
+
+def sector_filter(stock_df, index_df, position='long'):
+    if position == 'long':
+        trend = 'uptrend'
+    elif position == 'short':
+        trend = 'downtrend'
+
+    sector = index_df[index_df.loc[:, 'direction'] == trend].index
+
+    dict_list = []
+    dictionary = stock_df.to_dict('index')
+
+    for ticker in dictionary:
+        if dictionary[ticker]['sector'] in sector:
+            dict_list.append(ticker)
+
+    return stock_df.loc[dict_list]
+
+
+    # %%
 if __name__ == '__main__':
 
     timeframe = 'W'
@@ -108,20 +128,26 @@ if __name__ == '__main__':
     elif timeframe == 'D':
         header = 'Daily Timeframe'
 
+    pse_index = fractalenergy_index(interval=timeframe)
+    pse_prefilter_stocks = fractalenergy_stocks(interval=timeframe,
+                                                energy_level=54,
+                                                position=strategy)
+    pse_watchlist = sector_filter(pse_prefilter_stocks,
+                                  pse_index, position=strategy)
+
     print(' \n ')
     print('==================================================================================')
     print('PSE Indeces Overview in {0}'.format(header))
     print('==================================================================================')
     print(' \n ')
-    print(fractalenergy_index(interval=timeframe))
+    print(pse_index)
     print(' \n ')
     print('==================================================================================')
     print('Candidate Stocks for Swing Trade ({0} Position) in {1}'.format(
         strategy.capitalize(), header))
     print('==================================================================================')
     print(' \n ')
-    print(fractalenergy_stocks(interval=timeframe,
-          energy_level=54, position=strategy))
+    print(pse_watchlist)
     print(' \n ')
     print('==================================================================================')
     print('Date:  {0}'.format(datetime.now().date().strftime("%B %d, %Y")))
